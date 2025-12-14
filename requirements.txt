@@ -8,3 +8,4 @@ joblib
 matplotlib
 plotly
 python-multipart
+xgboost
