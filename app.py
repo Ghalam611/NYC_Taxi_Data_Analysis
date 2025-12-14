@@ -667,14 +667,14 @@ async def fare_get():
     content = """
     <div class="hero-card">
       <h1>💵 Fare Prediction</h1>
-      <p>Predict taxi fare based on distance & peak hours </p>
+      <p>Predict taxi fare using distance + date & time</p>
     </div>
 
     <div class="card">
       <form method="post">
         <div class="form-group">
           <label>Trip Distance (miles)</label>
-          <input name="trip_distance" required>
+          <input name="trip_distance" type="number" step="0.01" min="0" required>
         </div>
 
         <div class="form-group">
@@ -689,6 +689,7 @@ async def fare_get():
     return HTMLResponse(render_page("Fare Prediction", content))
 
 
+
 # ======================
 # FARE PREDICTION (POST)
 # ======================
@@ -700,32 +701,18 @@ async def fare_post(
     try:
         dt = pd.to_datetime(pickup_datetime)
 
-        # ==== Peak hours from demand model (مثل /predict) ====
-        is_weekend = 1 if dt.dayofweek in [5, 6] else 0
-        peak_hours = []
-        is_peak_hour = 0
+        
+        is_peak_hour = 1 if (7 <= dt.hour <= 9) or (16 <= dt.hour <= 19) else 0
 
-        if FORECAST_OK:
-            df_hours = pd.DataFrame({
-                "pickup_hour": list(range(24)),
-                "day_of_week": [dt.dayofweek] * 24,
-                "is_weekend": [is_weekend] * 24
-            })
-            Xh = scaler.transform(df_hours[FEATURES])
-            hourly_demand = np.maximum(best_model.predict(Xh), 0)
-            max_demand = float(np.max(hourly_demand))
-            peak_hours = [i for i, v in enumerate(hourly_demand) if float(v) == max_demand]
-            is_peak_hour = 1 if dt.hour in peak_hours else 0
-
-        # ==== قيم افتراضية (NYC center) بدل lat/long ====
+      
         DEFAULT_PICKUP_LAT = 40.7580
         DEFAULT_PICKUP_LON = -73.9855
-        DEFAULT_DROPOFF_LAT = 40.7580
-        DEFAULT_DROPOFF_LON = -73.9855
+        DEFAULT_DROPOFF_LAT = 40.7681
+        DEFAULT_DROPOFF_LON = -73.9819
 
-        # ==== features ====
+        
         X = pd.DataFrame([{
-            "trip_distance": trip_distance,
+            "trip_distance": trip_distance,            
             "pickup_longitude": DEFAULT_PICKUP_LON,
             "pickup_latitude": DEFAULT_PICKUP_LAT,
             "dropoff_longitude": DEFAULT_DROPOFF_LON,
@@ -733,17 +720,15 @@ async def fare_post(
             "pickup_hour": dt.hour,
             "pickup_day": dt.day,
             "pickup_month": dt.month,
-            "pickup_dayofweek": dt.dayofweek
+            "pickup_dayofweek": dt.dayofweek,
+            "is_peak_hour": is_peak_hour               
         }])
 
+        
         if fare_scaler is not None:
             X = fare_scaler.transform(X)
 
         fare = float(fare_model.predict(X)[0])
-
-        peak_text = "N/A"
-        if peak_hours:
-            peak_text = ", ".join(f"{h:02d}:00-{h:02d}:59" for h in peak_hours)
 
         content = f"""
         <div class="hero-card"><h1>💵 Fare Prediction Result</h1></div>
@@ -755,9 +740,10 @@ async def fare_post(
           </div>
 
           <div class="notice" style="margin-top:15px;">
-            <b>Peak hours:</b> {peak_text}<br>
-            <b>Is peak hour?</b> {"Yes" if is_peak_hour else "No"}<br>
-            <b>Weekend?</b> {"Yes" if is_weekend else "No"}<br>
+            <b>Date:</b> {dt.date()}<br>
+            <b>Time:</b> {dt.strftime("%H:%M")}<br>
+            <b>Peak hour?</b> {"Yes" if is_peak_hour else "No"}<br>
+            <b>Distance unit:</b> miles
           </div>
         </div>
         """
