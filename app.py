@@ -270,6 +270,36 @@ def clean_for_trip_clusters(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+# ======================
+# PEAK HOUR (from Demand Forecasting model) — TOP 1
+# ======================
+def peak_from_demand(dt: pd.Timestamp) -> tuple[int, float, float]:
+    """
+    Returns:
+      is_peak_hour (0/1),
+      hour_pred (predicted demand at dt.hour),
+      max_pred (max predicted demand that day)
+    """
+    if not FORECAST_OK or best_model is None or scaler is None:
+        return 0, 0.0, 0.0
+
+    df_pred = pd.DataFrame({
+        "pickup_hour": list(range(24)),
+        "day_of_week": [dt.dayofweek] * 24,
+        "is_weekend": [1 if dt.dayofweek in [5, 6] else 0] * 24
+    })
+
+    X_scaled = scaler.transform(df_pred[FEATURES])
+    preds = np.maximum(best_model.predict(X_scaled), 0).astype(float)
+
+    max_pred = float(np.max(preds))
+    hour_pred = float(preds[int(dt.hour)])
+
+    peak_hour = int(np.argmax(preds))
+    is_peak = 1 if int(dt.hour) == peak_hour else 0
+
+    return is_peak, hour_pred, max_pred
+
 
 # ======================
 # HOME
@@ -701,30 +731,37 @@ async def fare_post(
     try:
         dt = pd.to_datetime(pickup_datetime)
 
-        
-        is_peak_hour = 1 if (7 <= dt.hour <= 9) or (16 <= dt.hour <= 19) else 0
+        # Peak hour from DEMAND model (top_k=1)
+        is_peak_hour, hour_pred, day_max = peak_from_demand(dt)
 
-      
         DEFAULT_PICKUP_LAT = 40.7580
         DEFAULT_PICKUP_LON = -73.9855
         DEFAULT_DROPOFF_LAT = 40.7681
         DEFAULT_DROPOFF_LON = -73.9819
 
-        
         X = pd.DataFrame([{
-            "trip_distance": trip_distance,            
+            "trip_distance": float(trip_distance),
             "pickup_longitude": DEFAULT_PICKUP_LON,
             "pickup_latitude": DEFAULT_PICKUP_LAT,
             "dropoff_longitude": DEFAULT_DROPOFF_LON,
             "dropoff_latitude": DEFAULT_DROPOFF_LAT,
-            "pickup_hour": dt.hour,
-            "pickup_day": dt.day,
-            "pickup_month": dt.month,
-            "pickup_dayofweek": dt.dayofweek,
-            "is_peak_hour": is_peak_hour               
+            "pickup_hour": int(dt.hour),
+            "pickup_day": int(dt.day),
+            "pickup_month": int(dt.month),
+            "pickup_dayofweek": int(dt.dayofweek),
+            "is_peak_hour": int(is_peak_hour)
         }])
 
         
+        feature_order = [
+            "trip_distance",
+            "pickup_longitude", "pickup_latitude",
+            "dropoff_longitude", "dropoff_latitude",
+            "pickup_hour", "pickup_day", "pickup_month", "pickup_dayofweek",
+            "is_peak_hour"
+        ]
+        X = X[feature_order]
+
         if fare_scaler is not None:
             X = fare_scaler.transform(X)
 
